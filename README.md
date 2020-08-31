@@ -1,4 +1,4 @@
-## Welcome to GitHub Pages
+## Writeups/other miscellany
 
 You can use the [editor on GitHub](https://github.com/p0ppaea/p0ppaea.github.io/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
 
