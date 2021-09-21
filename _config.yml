@@ -28,7 +28,6 @@ baseurl: "/blog" # the subpath of your site, e.g. /blog
 url: "https://poppysec.github.io" # the base hostname & protocol for your site, e.g. http://example.com
 twitter_username: 0xpoppaea
 github_username:  poppysec
-#linkedin_username: 
 permalink: /:title/
 markdown: kramdown
 paginate: 5
