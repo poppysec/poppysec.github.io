@@ -17,7 +17,13 @@
 # you will see them accessed via {{ site.title }}, {{ site.email }}, and so on.
 # You can create any custom variable you would like, and they will be accessible
 # in the templates via {{ site.myvariable }}.
+permalink: /:title/
+markdown: kramdown
+paginate: 5
+paginate_path: "/:num/"
+date_format: "%b %-d, %Y"
 
+# Site information
 title: poppysec
 email: poppy.mcdermott@me.com
 description: >- # this means to ignore newlines until "baseurl:"
@@ -28,11 +34,7 @@ baseurl: "/blog" # the subpath of your site, e.g. /blog
 url: "https://poppysec.github.io" # the base hostname & protocol for your site, e.g. http://example.com
 twitter_username: 0xpoppaea
 github_username:  poppysec
-permalink: /:title/
-markdown: kramdown
-paginate: 5
-paginate_path: "/:num/"
-date_format: "%b %-d, %Y"
+
 
 # Build settings
 theme: minima

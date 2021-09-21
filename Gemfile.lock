@@ -276,10 +276,10 @@ PLATFORMS
 DEPENDENCIES
   github-pages
   jekyll (~> 3.9)
-  jekyll-feed
-  jekyll-paginate
-  jekyll-seo-tag
-  jekyll-sitemap
+  jekyll-feed (~> 0.15.1)
+  jekyll-paginate (~> 1.1.0)
+  jekyll-seo-tag (~> 2.7.1)
+  jekyll-sitemap (~> 1.4.0)
   tzinfo (~> 1.2)
   tzinfo-data
   wdm (~> 0.1.1)
