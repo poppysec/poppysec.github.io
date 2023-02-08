@@ -135,9 +135,13 @@ drwxr-xr-x  6 kali kali 4096 Apr 26 12:24 mnesia
 JPCGJCAEWHPKKPBXBYYB
 ```
 
-This can be used to gain RCE via Erlang Port Mapper Daemon. [49418 - Erlang Cookie - Remote Code Execution](https://www.exploit-db.com/exploits/49418)
+This can be used to gain RCE via Erlang Port Mapper Daemon. A Python exploit exists for this - [49418 - Erlang Cookie - Remote Code Execution](https://www.exploit-db.com/exploits/49418)
 
 # Initial Access
+
+> Erlang allows distributed Erlang instances to connect and remotely execute commands.
+> Nodes are permitted to connect to eachother if they share an authentication cookie,
+> this cookie is commonly called ".erlang.cookie"
 
 ```python
 TARGET = "192.168.216.68"
