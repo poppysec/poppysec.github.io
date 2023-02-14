@@ -1,6 +1,6 @@
 ---
 layout: post
-title: OSCP commands cheatsheet
+title: OSCP Commands Cheatsheet
 ---
 
 # Enumeration
