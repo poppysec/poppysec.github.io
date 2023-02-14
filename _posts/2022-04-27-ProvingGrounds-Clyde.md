@@ -5,7 +5,7 @@ title: Proving Grounds - Clyde (Hard)
 
 # Introduction 
 
-This is an Hard Linux box on Proving Grounds.
+This is a Hard Linux box on Proving Grounds.
 
 # Enumeration
 

